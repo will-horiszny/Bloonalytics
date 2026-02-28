@@ -1,0 +1,167 @@
+settings:
+  sql_time_limit_ms: 14000
+  allow_facet: false
+static_mounts:
+  - mount: static
+    content: static/
+extra_css_urls:
+  - /static/custom.css
+plugins:
+  datasette-render-images:
+    size_limit: 100000
+databases:
+  s24+_matches:
+    queries:
+      win_loss_by_round:
+        hide_sql: true
+        title: Win/Loss Distribution by Round
+        description: >-
+          Select filters. Then, click Show Plot. Choose Line (y), X=endRound, y=Games, and Stroke=Outcome.
+        sql: |
+          WITH player_matches AS (
+            SELECT 
+              m.endRound, 
+              m.map,
+              CASE WHEN s.side = 'left' THEN m.lHero ELSE m.rHero END AS Hero,
+              CASE WHEN s.side = 'left' THEN m.lt1 ELSE m.rt1 END AS T1,
+              CASE WHEN s.side = 'left' THEN m.lt2 ELSE m.rt2 END AS T2,
+              CASE WHEN s.side = 'left' THEN m.lt3 ELSE m.rt3 END AS T3,
+              CASE 
+                WHEN s.side = 'left' AND m.playerLeftWin THEN 'Win'
+                WHEN s.side = 'right' AND NOT m.playerLeftWin THEN 'Win'
+                ELSE 'Loss' 
+              END AS Outcome
+            FROM matches m
+            CROSS JOIN (SELECT 'left' AS side UNION ALL SELECT 'right') s
+          ),
+          filtered_matches AS (
+            SELECT endRound, Outcome
+            FROM player_matches
+            WHERE (:map = '' OR map LIKE '%' || :map || '%')
+              AND (:hero = '' OR Hero LIKE '%' || :hero || '%')
+              AND (:t1 = '' OR T1 LIKE '%' || :t1 || '%' OR T2 LIKE '%' || :t1 || '%' OR T3 LIKE '%' || :t1 || '%')
+              AND (:t2 = '' OR T1 LIKE '%' || :t2 || '%' OR T2 LIKE '%' || :t2 || '%' OR T3 LIKE '%' || :t2 || '%')
+              AND (:t3 = '' OR T1 LIKE '%' || :t3 || '%' OR T2 LIKE '%' || :t3 || '%' OR T3 LIKE '%' || :t3 || '%')
+          ),
+          valid_rounds AS (
+            SELECT endRound
+            FROM filtered_matches
+            GROUP BY endRound
+            HAVING SUM(CASE WHEN Outcome = 'Win' THEN 1 ELSE 0 END) >= 10
+               AND SUM(CASE WHEN Outcome = 'Loss' THEN 1 ELSE 0 END) >= 10
+          )
+          SELECT 
+            f.endRound + 1 as endRound,
+            COUNT(*) as Games,
+            f.Outcome
+          FROM filtered_matches f
+          INNER JOIN valid_rounds v ON f.endRound = v.endRound
+          GROUP BY f.endRound, f.Outcome
+          ORDER BY f.endRound ASC
+
+      winrate_by_round:
+        hide_sql: true
+        title: Winrate by Round
+        description: >- 
+          Select filters. Then, click Show Plot. Choose Line (y), X=endRound, y=Value, and Stroke=Outcome. Proceed with caution for round 41+ winrates as they are often low sample size!
+        library: datasette-plot
+        sql: |
+          WITH player_matches AS (
+            SELECT 
+              m.endRound, m.map,
+              CASE WHEN s.id = 0 THEN m.lHero ELSE m.rHero END AS Hero,
+              CASE WHEN s.id = 0 THEN m.lt1 ELSE m.rt1 END AS T1,
+              CASE WHEN s.id = 0 THEN m.lt2 ELSE m.rt2 END AS T2,
+              CASE WHEN s.id = 0 THEN m.lt3 ELSE m.rt3 END AS T3,
+              CASE WHEN s.id = 0 THEN m.playerLeftWin ELSE NOT m.playerLeftWin END AS isWin
+            FROM matches m
+            CROSS JOIN (SELECT 0 AS id UNION ALL SELECT 1) s
+          ),
+          filtered_matches AS (
+            SELECT endRound, isWin
+            FROM player_matches
+            WHERE map LIKE '%' || :map || '%'
+              AND Hero LIKE '%' || :hero || '%'
+              AND (T1 LIKE '%' || :t1 || '%' OR T2 LIKE '%' || :t1 || '%' OR T3 LIKE '%' || :t1 || '%')
+              AND (T1 LIKE '%' || :t2 || '%' OR T2 LIKE '%' || :t2 || '%' OR T3 LIKE '%' || :t2 || '%')
+              AND (T1 LIKE '%' || :t3 || '%' OR T2 LIKE '%' || :t3 || '%' OR T3 LIKE '%' || :t3 || '%')
+          ),
+          stats AS (
+            SELECT 
+              endRound,
+              AVG(CAST(isWin AS FLOAT)) as win_rate
+            FROM filtered_matches
+            GROUP BY endRound
+            /* Filter for at least 10 wins and 10 losses */
+            HAVING SUM(CASE WHEN isWin THEN 1 ELSE 0 END) >= 10
+               AND SUM(CASE WHEN NOT isWin THEN 1 ELSE 0 END) >= 10
+          )
+          SELECT 
+            stats.endRound + 1 as endRound,
+            CASE WHEN labels.type = 'Winrate' THEN stats.win_rate ELSE 0.5 END AS value,
+            labels.type AS series
+          FROM stats
+          CROSS JOIN (
+            SELECT 'Winrate' AS type 
+            UNION ALL 
+            SELECT '50% Mark'
+          ) labels
+          ORDER BY endRound, series DESC
+
+      counter_loadouts:
+        hide_sql: true
+        title: Counter Loadouts
+        description: >-
+          Enter a hero loadout to see which tower combinations statistically perform best against it!
+        sql: |
+          WITH IdentifiedCounters AS (
+              SELECT 
+                  CASE WHEN s.id = 0 THEN m.rHero ELSE m.lHero END AS Hero,
+                  CASE WHEN s.id = 0 THEN m.rt1   ELSE m.lt1   END AS Tw1,
+                  CASE WHEN s.id = 0 THEN m.rt2   ELSE m.lt2   END AS Tw2,
+                  CASE WHEN s.id = 0 THEN m.rt3   ELSE m.lt3   END AS Tw3,
+                  CASE WHEN s.id = 0 THEN NOT m.playerLeftWin ELSE m.playerLeftWin END AS WinAgainstInput
+              FROM matches m
+              CROSS JOIN (SELECT 0 AS id UNION ALL SELECT 1) s
+              WHERE (
+                  s.id = 0 
+                  AND m.lHero LIKE '%' || :hero || '%'
+                  AND (m.lt1 LIKE '%' || :t1 || '%' OR m.lt2 LIKE '%' || :t1 || '%' OR m.lt3 LIKE '%' || :t1 || '%')
+                  AND (m.lt1 LIKE '%' || :t2 || '%' OR m.lt2 LIKE '%' || :t2 || '%' OR m.lt3 LIKE '%' || :t2 || '%')
+                  AND (m.lt1 LIKE '%' || :t3 || '%' OR m.lt2 LIKE '%' || :t3 || '%' OR m.lt3 LIKE '%' || :t3 || '%')
+              ) OR (
+                  s.id = 1 
+                  AND m.rHero LIKE '%' || :hero || '%'
+                  AND (m.rt1 LIKE '%' || :t1 || '%' OR m.rt2 LIKE '%' || :t1 || '%' OR m.rt3 LIKE '%' || :t1 || '%')
+                  AND (m.rt1 LIKE '%' || :t2 || '%' OR m.rt2 LIKE '%' || :t2 || '%' OR m.rt3 LIKE '%' || :t2 || '%')
+                  AND (m.rt1 LIKE '%' || :t3 || '%' OR m.rt2 LIKE '%' || :t3 || '%' OR m.rt3 LIKE '%' || :t3 || '%')
+              )
+          ),
+          Aggregated AS (
+              SELECT 
+                  Hero, Tw1, Tw2, Tw3,
+                  COUNT(*) AS Games,
+                  SUM(WinAgainstInput) AS Wins,
+                  SUM(NOT WinAgainstInput) AS Losses,
+                  CAST(SUM(WinAgainstInput) AS REAL) / COUNT(*) AS WR
+              FROM IdentifiedCounters
+              GROUP BY Hero, Tw1, Tw2, Tw3
+              HAVING Wins >= 10 AND Losses >= 10
+          ),
+          mstats AS (
+              SELECT COUNT(*) AS TotalMatches FROM matches
+          )
+          SELECT 
+              a.Hero,
+              (a.Tw1 || ', ' || a.Tw2 || ', ' || a.Tw3) AS Loadout,
+              'https://b2.kozow.com/static/' || a.Hero || '.png' AS H,
+              'https://b2.kozow.com/static/' || a.Tw1 || '.png'   AS T1,
+              'https://b2.kozow.com/static/' || a.Tw2 || '.png'   AS T2,
+              'https://b2.kozow.com/static/' || a.Tw3 || '.png'   AS T3,
+              a.Games,
+              printf('%.2f%%', a.WR * 100) AS Winrate,
+              printf('%.2f%%', (CAST(a.Games AS REAL) / (mstats.TotalMatches * 2)) * 100) AS Pickrate,
+              printf('%.2f%%', (a.WR - 1.96 * SQRT((a.WR * (1.0 - a.WR)) / a.Games)) * 100) AS Winrate_LowerBound_95CI
+          FROM Aggregated a, mstats
+          WHERE LENGTH(Winrate_LowerBound_95CI) = 6
+          ORDER BY Winrate_LowerBound_95CI DESC

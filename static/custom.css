@@ -1,0 +1,7 @@
+/* Target images inside Datasette table cells */
+td img {
+    max-width: 50px; /* Adjust this number as needed */
+    max-height: 50px;
+    width: auto;
+    height: auto;
+}
