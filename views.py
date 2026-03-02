@@ -56,7 +56,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
     """
         )
     except:
@@ -111,7 +111,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
             """
         )
     except:
@@ -161,7 +161,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
         """
         )
     except:
@@ -214,7 +214,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
             """
         )
     except:
@@ -305,7 +305,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
     except:
@@ -364,7 +364,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
     except:
@@ -418,7 +418,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10 
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
     except:
@@ -475,7 +475,7 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10
-ORDER BY (AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) DESC;
+ORDER BY WPA_LowerBound_95CI DESC;ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
     except:

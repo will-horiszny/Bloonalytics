@@ -142,6 +142,29 @@ def get_matches(hom_id, user_ids):
                         cursor.execute("INSERT OR IGNORE INTO players (user_id, baseline_wr) VALUES (?, ?)",
                                        (p_id, base))
 
+                left_player = match.get("playerLeft", {})
+                right_player = match.get("playerRight", {})
+
+                # Get towers and sort them before insertion
+                left_towers = sorted([left_player.get("towerone"), left_player.get("towertwo"),
+                                      left_player.get("towerthree")], key=lambda x: str(x))
+                right_towers = sorted([right_player.get("towerone"), right_player.get("towertwo"),
+                                       right_player.get("towerthree")], key=lambda x: str(x))
+
+                # Adjust map names
+                MAP_CHANGES = {
+                    'banana_depot_scene': 'banana_depot',
+                    'le_ruins': 'castle_ruins',
+                    'salmon_pool': 'salmon_ladder',
+                    'off_tide': 'offtide',
+                    'bloon_bot_factory': 'bot_factory',
+                    'building_site_scene': 'building_site',
+                    'mayan_map_01': 'mayan',
+                }
+                map_name = match['map']
+                if map_name in MAP_CHANGES:
+                    map_name = MAP_CHANGES[map_name]
+
                 l_data = player_cache[l_id]
                 r_data = player_cache[r_id]
                 l_skill = calculate_smoothed_skill(l_data[1], l_data[2], l_data[0])
@@ -149,8 +172,24 @@ def get_matches(hom_id, user_ids):
                 left_won = match.get("playerLeft", {}).get("result") == "win"
                 l_wpa, r_wpa = calculate_wpa(l_skill, r_skill, left_won)
 
-                # Update DB (Simplified for brevity as your original had placeholders)
-                # cursor.execute("INSERT INTO matches ...")
+                # --- MODIFIED INSERT QUERY ---
+                cursor.execute('''
+                        INSERT INTO matches (
+                            match_id, map, playerLeftWin, 
+                            lHero, lt1, lt2, lt3, 
+                            rHero, rt1, rt2, rt3, 
+                            duration, endRound, 
+                            left_wpa, right_wpa, 
+                            left_user_id, right_user_id
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                    match['id'], map_name, left_player.get("result") == "win",
+                    left_player.get("hero"), left_towers[0], left_towers[1], left_towers[2],
+                    right_player.get("hero"), right_towers[0], right_towers[1], right_towers[2],
+                    match['duration'], match['endRound'],
+                    l_wpa, r_wpa, l_id, r_id
+                ))
 
                 for p_id, p_wpa, p_won in [(l_id, l_wpa, left_won), (r_id, r_wpa, not left_won)]:
                     player_cache[p_id][1] += 1 if p_won else 0
@@ -296,52 +335,84 @@ def get_players(hom_id):
 
 
 def merge_matches_tables(db_source, db_dest):
-    # (Keep your existing merge logic, just ensure you include new columns)
     try:
         conn_source = sqlite3.connect(db_source)
         conn_dest = sqlite3.connect(db_dest)
         cursor_source = conn_source.cursor()
         cursor_dest = conn_dest.cursor()
 
-        # Add columns if missing
+        # Ensure schema matches
         for col in ['left_wpa', 'right_wpa', 'left_user_id', 'right_user_id']:
             try:
                 cursor_dest.execute(f"ALTER TABLE matches ADD COLUMN {col} REAL")
             except:
                 pass
 
-        # Copy Matches
+        # 1. Merge matches (INSERT OR IGNORE handles the duplicate check)
         cursor_source.execute("SELECT * FROM matches")
         rows = cursor_source.fetchall()
-        # Use simple dynamic insertion to handle column count mismatches gracefully
         if rows:
             cols = [description[0] for description in cursor_source.description]
             placeholders = ",".join("?" * len(cols))
             col_names = ",".join(cols)
             cursor_dest.executemany(f"INSERT OR IGNORE INTO matches ({col_names}) VALUES ({placeholders})", rows)
 
-        # Copy Players
-        cursor_dest.execute(
-            "CREATE TABLE IF NOT EXISTS players (user_id TEXT PRIMARY KEY, baseline_wr REAL, total_wpa REAL DEFAULT 0.0, games_tracked INTEGER DEFAULT 0)")
-        cursor_source.execute("SELECT user_id, baseline_wr, total_wpa, games_tracked FROM players")
-        players = cursor_source.fetchall()
-        for p in players:
-            cursor_dest.execute("""
-                INSERT INTO players (user_id, baseline_wr, total_wpa, games_tracked)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    total_wpa = total_wpa + excluded.total_wpa,
-                    games_tracked = games_tracked + excluded.games_tracked,
-                    baseline_wr = excluded.baseline_wr
-            """, p)
-
         conn_dest.commit()
-        print(f"Merged into {db_dest}")
+        print(f"Successfully merged matches into {db_dest}.")
+
+        # 2. Recalculate player stats in the destination DB
+        rebuild_players_table(db_dest)
+
     except Exception as e:
         print(f"Merge error: {e}")
     finally:
-        if conn_source: conn_source.close()
-        if conn_dest: conn_dest.close()
+        conn_source.close()
+        conn_dest.close()
+
+
+def rebuild_players_table(db_path):
+    """
+    Recalculates the players table from scratch based on the matches table.
+    Ensures 100% accuracy for total_wpa and games_tracked.
+    """
+    print(f"Rebuilding player stats for {db_path}...")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 1. Preserve existing baselines so we don't have to hit the API again
+    cursor.execute("SELECT user_id, baseline_wr FROM players")
+    baselines = {row[0]: row[1] for row in cursor.fetchall()}
+
+    # 2. Clear the players table
+    cursor.execute("DELETE FROM players")
+
+    # 3. Use a high-speed SQL aggregation to tally stats
+    # We union the Left Player and Right Player stats into one stream then group by ID
+    cursor.execute("""
+        INSERT INTO players (user_id, baseline_wr, total_wpa, games_tracked, wins, losses)
+        SELECT 
+            user_id,
+            0.5, -- Temporary baseline
+            SUM(wpa),
+            COUNT(*),
+            SUM(won),
+            SUM(lost)
+        FROM (
+            SELECT left_user_id AS user_id, left_wpa AS wpa, (playerLeftWin=1) as won, (playerLeftWin=0) as lost FROM matches
+            UNION ALL
+            SELECT right_user_id AS user_id, right_wpa AS wpa, (playerLeftWin=0) as won, (playerLeftWin=1) as lost FROM matches
+        )
+        WHERE user_id IS NOT NULL
+        GROUP BY user_id
+    """)
+
+    # 4. Restore the actual baselines
+    for uid, b_wr in baselines.items():
+        cursor.execute("UPDATE players SET baseline_wr = ? WHERE user_id = ?", (b_wr, uid))
+
+    conn.commit()
+    conn.close()
+    print("Player stats rebuild complete.")
 
 
 def main():
@@ -380,6 +451,7 @@ def main():
 
                 db_source = f"{db_id}_matches.db"
                 views.apply_views(db_source)
+                rebuild_players_table(db_source)
 
                 # Merges
                 db_dest = "s25+_matches.db"
