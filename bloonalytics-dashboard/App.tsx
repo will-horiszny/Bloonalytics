@@ -189,6 +189,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-blue-500/30">
       <link rel="icon" type="image/webp" href="/static/favicon.webp" />
+	  
+	      {/* NEW BACKGROUND CONTAINER */}
+    <div 
+      className="fixed inset-0 z-0 opacity-60" 
+      style={{ 
+        backgroundImage: 'url(/static/bg.png)', 
+        backgroundSize: 'cover', 
+        backgroundPosition: 'center' 
+      }} 
+    />
       
       {/* Loading Overlay */}
       {isExploring && (
@@ -210,10 +220,7 @@ const App: React.FC = () => {
       )}
 
       {/* Hero Section */}
-      <div className="relative w-full h-[300px] md:h-[400px] overflow-hidden flex items-center justify-center bg-slate-950">
-        <div className="absolute inset-0 opacity-10 pointer-events-none" 
-             style={{ backgroundImage: `radial-gradient(#1e293b 1px, transparent 1px)`, backgroundSize: '40px 40px' }}></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-900/50"></div>
+      <div className="relative w-full h-[300px] md:h-[400px] overflow-hidden flex items-center justify-center">
         
         <div className="relative z-10 text-center px-4 max-w-4xl">
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-white mb-4 drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] uppercase italic">
