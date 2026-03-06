@@ -5,7 +5,7 @@ import time
 import requests
 import argparse
 import views
-from tqdm import tqdm  # <--- Added
+from tqdm import tqdm
 
 
 def get_live_hom_id():
@@ -92,6 +92,48 @@ def get_overall_win_rate(user_id, session_cache, cursor=None):
     return 0.5
 
 
+def get_player_baseline(hom_id, user_id, session_cache, cursor=None):
+    if not user_id:
+        return 0.5
+    if user_id in session_cache:
+        return session_cache[user_id]
+
+    # 1. Lazy Grandfathering from Previous Season
+    try:
+        prefix, num = hom_id.rsplit('_', 1)
+        prev_db_name = f"{prefix}_{int(num) - 1}_matches.db"
+        if os.path.exists(prev_db_name):
+            prev_conn = sqlite3.connect(prev_db_name)
+            prev_cursor = prev_conn.cursor()
+            K = 20.0
+            # Fetch and locally compute adaptive baseline
+            prev_cursor.execute("""
+                SELECT (wins + (baseline_wr * ?)) / (wins + losses + ?) 
+                FROM players WHERE user_id = ?
+            """, (K, K, user_id))
+            row = prev_cursor.fetchone()
+            prev_conn.close()
+
+            if row and row[0] is not None:
+                adaptive_baseline = row[0]
+                session_cache[user_id] = adaptive_baseline
+                if cursor:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO players (user_id, baseline_wr, total_wpa, games_tracked, wins, losses)
+                            VALUES (?, ?, 0, 0, 0, 0)
+                            ON CONFLICT(user_id) DO NOTHING
+                        """, (user_id, adaptive_baseline))
+                    except Exception as e:
+                        tqdm.write(f"    [!] DB Save Error: {e}")
+                return adaptive_baseline
+    except Exception as e:
+        pass
+
+    # 2. Fallback to API overall win rate
+    return get_overall_win_rate(user_id, session_cache, cursor)
+
+
 def calculate_smoothed_skill(wins, losses, profile_baseline):
     K = 20
     games = wins + losses
@@ -114,7 +156,7 @@ def get_matches(hom_id, user_ids):
         pbar.set_description(f"Processing {userID[:12]}")  # Show start of ID
 
         if userID not in player_cache:
-            base = get_overall_win_rate(userID, {}, cursor)
+            base = get_player_baseline(hom_id, userID, {}, cursor)
             player_cache[userID] = [base, 0, 0]
             cursor.execute("INSERT OR IGNORE INTO players (user_id, baseline_wr) VALUES (?, ?)", (userID, base))
             conn.commit()
@@ -137,7 +179,7 @@ def get_matches(hom_id, user_ids):
 
                 for p_id in [l_id, r_id]:
                     if p_id not in player_cache:
-                        base = get_overall_win_rate(p_id, {}, cursor)
+                        base = get_player_baseline(hom_id, p_id, {}, cursor)
                         player_cache[p_id] = [base, 0, 0]
                         cursor.execute("INSERT OR IGNORE INTO players (user_id, baseline_wr) VALUES (?, ?)",
                                        (p_id, base))
@@ -169,7 +211,7 @@ def get_matches(hom_id, user_ids):
                 r_data = player_cache[r_id]
                 l_skill = calculate_smoothed_skill(l_data[1], l_data[2], l_data[0])
                 r_skill = calculate_smoothed_skill(r_data[1], r_data[2], r_data[0])
-                left_won = match.get("playerLeft", {}).get("result") == "win"
+                left_won = left_player.get("result") == "win"
                 l_wpa, r_wpa = calculate_wpa(l_skill, r_skill, left_won)
 
                 # --- MODIFIED INSERT QUERY ---
@@ -184,7 +226,7 @@ def get_matches(hom_id, user_ids):
                         )
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
-                    match['id'], map_name, left_player.get("result") == "win",
+                    match['id'], map_name, left_won,
                     left_player.get("hero"), left_towers[0], left_towers[1], left_towers[2],
                     right_player.get("hero"), right_towers[0], right_towers[1], right_towers[2],
                     match['duration'], match['endRound'],
@@ -224,8 +266,6 @@ def calculate_wpa(left_baseline, right_baseline, left_won):
 def create_matches_db(db_id):
     """
     Creates a new season database.
-    Grandfathers players by turning the previous season's
-    Smoothed Skill into the new season's Baseline.
     """
     db_name = f"{db_id}_matches.db"
     if not os.path.exists(db_name):
@@ -252,51 +292,13 @@ def create_matches_db(db_id):
             losses INTEGER DEFAULT 0
         )""")
         conn.commit()
+        conn.close()
 
-        # 3. ADVANCED GRANDFATHERING LOGIC
+        # 3. Discovery Maps for Views (from previous DB if exists)
+        map_list = []
         try:
             prefix, num = db_id.rsplit('_', 1)
             prev_db_name = f"{prefix}_{int(num) - 1}_matches.db"
-            K = 20.0  # Smoothing constant
-
-            if os.path.exists(prev_db_name):
-                print(f"Found {prev_db_name}. Calculating adaptive baselines for {db_id}...")
-
-                prev_conn = sqlite3.connect(prev_db_name)
-                prev_cursor = prev_conn.cursor()
-
-                # Calculate the smoothed skill in the SELECT query itself
-                # New Baseline = (Wins + (Old_Baseline * K)) / (Wins + Losses + K)
-                prev_cursor.execute(f"""
-                    SELECT 
-                        user_id, 
-                        (wins + (baseline_wr * {K})) / (wins + losses + {K}) AS adaptive_baseline,
-                        total_wpa,
-                        games_tracked
-                    FROM players
-                """)
-                grandfathered_players = prev_cursor.fetchall()
-                prev_conn.close()
-
-                if grandfathered_players:
-                    # Insert into new DB. Seasonal wins/losses are set to 0 fresh.
-                    cursor.executemany("""
-                        INSERT OR IGNORE INTO players (user_id, baseline_wr, total_wpa, games_tracked, wins, losses)
-                        VALUES (?, ?, ?, ?, 0, 0)
-                    """, grandfathered_players)
-                    conn.commit()
-                    print(f"Successfully carried over {len(grandfathered_players)} players with adaptive baselines.")
-            else:
-                print(f"No previous database found ({prev_db_name}).")
-
-        except Exception as e:
-            print(f"Note: Could not carry over player data: {e}")
-
-        conn.close()
-
-        # 4. Discovery Maps for Views (from previous DB if exists)
-        map_list = []
-        try:
             if os.path.exists(prev_db_name):
                 prev_conn = sqlite3.connect(prev_db_name)
                 map_list = [row[0] for row in prev_conn.execute("SELECT DISTINCT map FROM matches")]
