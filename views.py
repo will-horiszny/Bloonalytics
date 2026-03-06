@@ -475,10 +475,11 @@ FROM Aggregated
 CROSS JOIN MatchStats ms
 WHERE Wins >= 10 
   AND Losses >= 10
-ORDER BY WPA_LowerBound_95CI DESC;ORDER BY WPA_LowerBound_95CI DESC;
+ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
-    except:
+    except Exception as e:
+        print(e)
         pass
 
 
