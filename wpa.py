@@ -1,4 +1,5 @@
 import datetime
+import glob
 import os
 import sqlite3
 import time
@@ -456,17 +457,9 @@ def main():
                 rebuild_players_table(db_source)
 
                 # Merges
-                db_dest = "s25+_matches.db"
-                merge_matches_tables(db_source, db_dest)
-                views.apply_views(db_dest)
-
-                db_dest = "s34+_matches.db"
-                merge_matches_tables(db_source, db_dest)
-                views.apply_views(db_dest)
-
-                db_dest = "s38+_matches.db"
-                merge_matches_tables(db_source, db_dest)
-                views.apply_views(db_dest)
+                for db_dest in glob.glob("*+*.db"):
+                    merge_matches_tables(db_source, db_dest)
+                    views.apply_views(db_dest)
 
                 timetaken = datetime.datetime.now() - start
                 print(f"Done in {timetaken}")
