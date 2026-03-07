@@ -478,8 +478,7 @@ WHERE Wins >= 10
 ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
-    except Exception as e:
-        print(e)
+    except:
         pass
 
 

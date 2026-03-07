@@ -1,6 +1,7 @@
 settings:
-  sql_time_limit_ms: 20000
+  sql_time_limit_ms: 13000
   allow_facet: false
+  # max_returned_rows: 20000
 static_mounts:
   - mount: static
     content: static/
@@ -9,6 +10,9 @@ extra_css_urls:
 plugins:
   datasette-render-images:
     size_limit: 100000
+  datasette-render-markdown:
+    columns:
+      - Profile
 databases:
   s25+_matches:
     queries:
@@ -18,40 +22,57 @@ databases:
         description: >-
           Select filters. Hero matches end of string (e.g. Jones, Biker), towers are substring based (Careful of Dart and Dartling). Then, click Show Plot. Choose Line (y), X=endRound, y=Games, and Stroke=Outcome.
         sql: |
-          WITH player_matches AS (
-            SELECT 
-              m.endRound, 
-              m.map,
-              CASE WHEN s.side = 'left' THEN m.lHero ELSE m.rHero END AS Hero,
-              CASE WHEN s.side = 'left' THEN m.lt1 ELSE m.rt1 END AS T1,
-              CASE WHEN s.side = 'left' THEN m.lt2 ELSE m.rt2 END AS T2,
-              CASE WHEN s.side = 'left' THEN m.lt3 ELSE m.rt3 END AS T3,
-              CASE 
-                WHEN s.side = 'left' AND m.playerLeftWin THEN 'Win'
-                WHEN s.side = 'right' AND NOT m.playerLeftWin THEN 'Win'
-                ELSE 'Loss' 
-              END AS Outcome,
-              CASE WHEN s.side = 'left' THEN m.left_user_id ELSE m.right_user_id END AS user_id
-            FROM matches m
-            CROSS JOIN (SELECT 'left' AS side UNION ALL SELECT 'right') s
+          WITH RECURSIVE round_series(r) AS (
+              -- Generates numbers 0 through 49
+              SELECT 0
+              UNION ALL
+              SELECT r + 1 FROM round_series WHERE r < 49
           ),
-          filtered_matches AS (
-            SELECT endRound, Outcome
-            FROM player_matches
-            WHERE (:map = '' OR map LIKE '%' || :map || '%')
-              AND (:hero = '' OR Hero LIKE '%' || :hero)
-              AND (:t1 = '' OR T1 LIKE '%' || :t1 || '%' OR T2 LIKE '%' || :t1 || '%' OR T3 LIKE '%' || :t1 || '%')
-              AND (:t2 = '' OR T1 LIKE '%' || :t2 || '%' OR T2 LIKE '%' || :t2 || '%' OR T3 LIKE '%' || :t2 || '%')
-              AND (:t3 = '' OR T1 LIKE '%' || :t3 || '%' OR T2 LIKE '%' || :t3 || '%' OR T3 LIKE '%' || :t3 || '%')
-              AND (:user_id = '' OR user_id = :user_id)
+          outcomes(Outcome) AS (
+              SELECT 'Win' UNION ALL SELECT 'Loss'
+          ),
+          scaffold AS (
+              -- Creates 100 rows: (0, Win), (0, Loss) ... (49, Win), (49, Loss)
+              SELECT r as endRound, Outcome FROM round_series CROSS JOIN outcomes
+          ),
+          filtered_counts AS (
+              -- Aggregate the data FIRST to make the final join tiny
+              SELECT endRound, Outcome, COUNT(*) as Games
+              FROM (
+                  -- Matches where user is on Left
+                  SELECT endRound, CASE WHEN playerLeftWin THEN 'Win' ELSE 'Loss' END AS Outcome
+                  FROM matches
+                  WHERE (:user_id = '' OR left_user_id = :user_id)
+                    AND (:map = '' OR map LIKE '%' || :map || '%')
+                    AND (:hero = '' OR lHero LIKE '%' || :hero)
+                    AND (:t1 = '' OR (lt1 LIKE '%' || :t1 || '%' OR lt2 LIKE '%' || :t1 || '%' OR lt3 LIKE '%' || :t1 || '%'))
+                    AND (:t2 = '' OR (lt1 LIKE '%' || :t2 || '%' OR lt2 LIKE '%' || :t2 || '%' OR lt3 LIKE '%' || :t2 || '%'))
+                    AND (:t3 = '' OR (lt1 LIKE '%' || :t3 || '%' OR lt2 LIKE '%' || :t3 || '%' OR lt3 LIKE '%' || :t3 || '%'))
+          
+                  UNION ALL
+          
+                  -- Matches where user is on Right
+                  SELECT endRound, CASE WHEN NOT playerLeftWin THEN 'Win' ELSE 'Loss' END AS Outcome
+                  FROM matches
+                  WHERE (:user_id = '' OR right_user_id = :user_id)
+                    AND (:map = '' OR map LIKE '%' || :map || '%')
+                    AND (:hero = '' OR rHero LIKE '%' || :hero)
+                    AND (:t1 = '' OR (rt1 LIKE '%' || :t1 || '%' OR rt2 LIKE '%' || :t1 || '%' OR rt3 LIKE '%' || :t1 || '%'))
+                    AND (:t2 = '' OR (rt1 LIKE '%' || :t2 || '%' OR rt2 LIKE '%' || :t2 || '%' OR rt3 LIKE '%' || :t2 || '%'))
+                    AND (:t3 = '' OR (rt1 LIKE '%' || :t3 || '%' OR rt2 LIKE '%' || :t3 || '%' OR rt3 LIKE '%' || :t3 || '%'))
+              ) sub
+              GROUP BY endRound, Outcome
           )
+          -- Combine scaffold with counts
           SELECT 
-            endRound + 1 as endRound,
-            COUNT(*) as Games,
-            Outcome
-          FROM filtered_matches
-          GROUP BY endRound, Outcome
-          ORDER BY endRound ASC
+              s.endRound + 1 as endRound,
+              COALESCE(fc.Games, 0) as Games,
+              s.Outcome
+          FROM scaffold s
+          LEFT JOIN filtered_counts fc 
+              ON s.endRound = fc.endRound 
+              AND s.Outcome = fc.Outcome
+          ORDER BY s.endRound ASC, s.Outcome DESC;
 
       winrate_by_round:
         hide_sql: true
@@ -208,8 +229,14 @@ databases:
                 -- Enforce the 10-win, 10-loss minimum
                 HAVING Wins >= 10 AND Losses >= 10
             )
-            SELECT 
-                user_id AS [Player ID],
+                SELECT 
+                   json_object(
+                  'label',
+                  'B2.LOL',
+                  'href',
+                  'https://b2.lol/playerInfo/playerInfo.html?' || user_id
+                ) as Profile,
+                user_id,
                 Games,
                 Wins,
                 Losses,
@@ -219,3 +246,4 @@ databases:
             FROM ExpertAggregates
             -- Order by the Lower Bound to see the most reliable experts first
             ORDER BY (WR - 1.96 * SQRT((WR * (1.0 - WR)) / Games)) DESC
+
