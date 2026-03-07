@@ -245,9 +245,9 @@ SELECT map AS Map,
        ROUND(avg_end_round, 2)                                     AS [Average End Round],
        ROUND(avg_duration / avg_end_round, 2)                      AS [Seconds per Round]
 FROM (SELECT map,
-             AVG(duration)     AS avg_duration,
-             AVG(endRound) + 1 AS avg_end_round,
-             COUNT(*)          AS Games
+             statistics_median(duration)     AS avg_duration,
+             AVG(endRound) + 1               AS avg_end_round,
+             COUNT(*)                        AS Games
       FROM elite_maps
       GROUP BY map)
         """
