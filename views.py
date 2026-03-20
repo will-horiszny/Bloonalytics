@@ -50,6 +50,7 @@ SELECT
     Hero,
     'https://b2.kozow.com/static/' || Hero || '.png' AS Icon,
     Games,
+    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
     ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
     ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
@@ -106,6 +107,7 @@ SELECT
     Tower,
     'https://b2.kozow.com/static/' || Tower || '.png' AS Icon,
     Games,
+    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
     ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
     ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
@@ -303,6 +305,7 @@ SELECT
     Hero,
     'https://b2.kozow.com/static/' || Hero || '.png' AS Icon,
     Games,
+    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
     ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
     ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
@@ -363,6 +366,7 @@ SELECT
     Tower,
     'https://b2.kozow.com/static/' || Tower || '.png' AS Icon,
     Games,
+    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
     ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
     ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
