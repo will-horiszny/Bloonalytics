@@ -463,6 +463,8 @@ def main():
 
                 timetaken = datetime.datetime.now() - start
                 print(f"Done in {timetaken}")
+            else:
+                print("No live hom id.")
 
         except Exception as e:
             print(f"An error occurred: {e}")
