@@ -26,6 +26,7 @@ const MAP_EMOJIS: Record<string, string> = {
   neo_highway: '🚗',
   oasis: '🏝️',
   offtide: '🌊',
+  park: '🌳',
   pirate_cove: '💀',
   ports: '⚓',
   precious_space: '🚀',
