@@ -302,17 +302,19 @@ Aggregated AS (
     GROUP BY Hero
 )
 SELECT 
-    Hero,
-    'https://b2.kozow.com/static/' || Hero || '.png' AS Icon,
-    Games,
-    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
+    Aggregated.Hero,
+    'https://b2.kozow.com/static/' || Aggregated.Hero || '.png' AS Icon,
+    Aggregated.Games,
+    ROUND((Aggregated.Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
-    ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
-    ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
+    ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Aggregated.Games)) * 100, 2) AS WPA_LowerBound_95CI,
+    ROUND(((Wins*1.0/Aggregated.Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score],
+    ROUND((AvgWPA * 100) - COALESCE(ah.[Win Probability Added], 0), 2) AS [Map Delta]
 FROM Aggregated
 CROSS JOIN MatchStats ms
-WHERE Wins >= 10 
-  AND Losses >= 10 
+LEFT JOIN all_heroes ah ON Aggregated.Hero = ah.Hero
+WHERE Aggregated.Wins >= 10 
+  AND Aggregated.Losses >= 10 
 ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
@@ -363,17 +365,19 @@ Aggregated AS (
     GROUP BY Tower
 )
 SELECT 
-    Tower,
-    'https://b2.kozow.com/static/' || Tower || '.png' AS Icon,
-    Games,
-    ROUND((Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
+    Aggregated.Tower,
+    'https://b2.kozow.com/static/' || Aggregated.Tower || '.png' AS Icon,
+    Aggregated.Games,
+    ROUND((Aggregated.Games * 50.0) / ms.TotalMatches, 2) AS Pickrate,
     ROUND(AvgWPA * 100, 2) AS [Win Probability Added],
-    ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Games)) * 100, 2) AS WPA_LowerBound_95CI,
-    ROUND(((Wins*1.0/Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score]
+    ROUND((AvgWPA - 1.96 * SQRT(MAX(0, AvgWPASq - AvgWPA * AvgWPA)) / SQRT(Aggregated.Games)) * 100, 2) AS WPA_LowerBound_95CI,
+    ROUND(((Wins*1.0/Aggregated.Games) - 0.5 - AvgWPA) * 100, 2) AS [Pro Score],
+    ROUND((AvgWPA * 100) - COALESCE(at.[Win Probability Added], 0), 2) AS [Map Delta]
 FROM Aggregated
 CROSS JOIN MatchStats ms
-WHERE Wins >= 10 
-  AND Losses >= 10 
+LEFT JOIN all_towers at ON Aggregated.Tower = at.Tower
+WHERE Aggregated.Wins >= 10 
+  AND Aggregated.Losses >= 10 
 ORDER BY WPA_LowerBound_95CI DESC;
     """
         db.create_view(view_name, sql)
